@@ -27,7 +27,7 @@ export function Header({ user }: { user?: { full_name: string } }) {
         <div className="flex items-center gap-4">
           <Link href="/" className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-lg bg-rose-600" />
-            <span className="text-lg font-bold">Zone Leave</span>
+            <span className="text-lg font-bold">Vendor Leave Management</span>
           </Link>
         </div>
         <div className="flex items-center gap-4">
