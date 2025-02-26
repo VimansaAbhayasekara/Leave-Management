@@ -36,6 +36,8 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { utils, writeFile } from "xlsx"; // Import xlsx library
+import toast, { Toaster } from "react-hot-toast"; // Import toast for notifications
 
 // Define the columns for the table
 const columns: ColumnDef<any>[] = [
@@ -260,6 +262,44 @@ export default function AdminView() {
     setDateRange({ from: undefined, to: undefined });
   };
 
+  // Download Excel file
+  const handleDownloadExcel = () => {
+    if (!dateRange.from || !dateRange.to) {
+      toast.error("Please select a date range before downloading.");
+      return;
+    }
+
+    // Filter leaves based on the selected date range
+    const filteredLeaves = leaves.filter((leave) => {
+      const leaveDate = new Date(leave.leave_date);
+      return leaveDate >= dateRange.from! && leaveDate <= dateRange.to!;
+    });
+
+    // Sort by leave date
+    filteredLeaves.sort((a, b) => new Date(a.leave_date).getTime() - new Date(b.leave_date).getTime());
+
+    // Prepare data for Excel
+    const excelData = filteredLeaves.map((leave) => ({
+      "Leave Date": new Date(leave.leave_date).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }),
+      "Employee Name": leave.users?.full_name || "Unknown",
+      "Leave Type": leave.leave_type,
+      "Leave Purpose": leave.leave_purpose,
+      "Leave Time": leave.leave_time,
+    }));
+
+    // Create a worksheet
+    const worksheet = utils.json_to_sheet(excelData);
+    const workbook = utils.book_new();
+    utils.book_append_sheet(workbook, worksheet, "Leaves");
+
+    // Write the file and trigger download
+    writeFile(workbook, `Leaves_${format(dateRange.from, "yyyy-MM-dd")}_to_${format(dateRange.to, "yyyy-MM-dd")}.xlsx`);
+  };
+
   // Initialize the table
   const table = useReactTable({
     data: leaves,
@@ -282,6 +322,7 @@ export default function AdminView() {
 
   return (
     <div className="space-y-6">
+      <Toaster /> {/* Add Toaster for toast messages */}
       {/* Cards for Total Employees, Today Leaves, and Tomorrow Leaves */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -351,6 +392,9 @@ export default function AdminView() {
         </Popover>
         <Button variant="outline" onClick={handleResetDateRange}>
           Reset Date Range
+        </Button>
+        <Button variant="secondary" onClick={handleDownloadExcel}>
+          Download Report
         </Button>
       </div>
 
