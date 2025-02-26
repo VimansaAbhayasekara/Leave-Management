@@ -1,14 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Calendar } from "@/components/ui/calendar"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { addDays, format, startOfWeek, isSameDay, parseISO } from "date-fns"
+import { ChevronLeft, ChevronRight, Plus, ArrowUpDown } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createClient } from "@/utils/supabase/client"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import {
   AlertDialog,
@@ -21,15 +21,30 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { getLeaveColor } from "@/lib/utils"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
+import { DataTable } from "@/components/data-table"
+import type { ColumnDef } from "@tanstack/react-table"
+
+const WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI"]
+
+const LEAVE_COLORS = {
+  "Study Leave": "bg-gradient-to-r from-blue-500/20 to-blue-500/10 border-blue-500/20",
+  "Exam Leave": "bg-gradient-to-r from-green-500/20 to-green-500/10 border-green-500/20",
+  "Medical Leave": "bg-gradient-to-r from-red-500/20 to-red-500/10 border-red-500/20",
+  "Annual Leave": "bg-gradient-to-r from-yellow-500/20 to-yellow-500/10 border-yellow-500/20",
+  "Parental Leave": "bg-gradient-to-r from-purple-500/20 to-purple-500/10 border-purple-500/20",
+}
 
 export default function EmployeeView({ userId }: { userId: string }) {
+  const [currentWeek, setCurrentWeek] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined)
   const [leaveType, setLeaveType] = useState("")
   const [leavePurpose, setLeavePurpose] = useState("")
   const [leaveTime, setLeaveTime] = useState("")
   const [appliedLeaves, setAppliedLeaves] = useState<any[]>([])
   const [editingLeave, setEditingLeave] = useState<any>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -50,9 +65,21 @@ export default function EmployeeView({ userId }: { userId: string }) {
     }
   }
 
-  const handleDateSelect = (date: Date | undefined) => {
-    if (date && date.getDay() !== 0 && date.getDay() !== 6) {
+  const handleDateClick = (date: Date, existingLeave?: any) => {
+    if (date.getDay() !== 0 && date.getDay() !== 6) {
       setSelectedDate(date)
+      if (existingLeave) {
+        setEditingLeave(existingLeave)
+        setLeaveType(existingLeave.leave_type)
+        setLeavePurpose(existingLeave.leave_purpose)
+        setLeaveTime(existingLeave.leave_time)
+      } else {
+        setEditingLeave(null)
+        setLeaveType("")
+        setLeavePurpose("")
+        setLeaveTime("")
+      }
+      setIsDialogOpen(true)
     }
   }
 
@@ -63,35 +90,28 @@ export default function EmployeeView({ userId }: { userId: string }) {
         leave_type: leaveType,
         leave_purpose: leavePurpose,
         leave_time: leaveTime,
-        leave_date: selectedDate.toISOString().split("T")[0],
-      }
+        leave_date: selectedDate.toISOString().split("T")[0], // Ensure UTC date
+      };
 
       const { data, error } = editingLeave
         ? await supabase.from("leaves").update(leaveData).eq("id", editingLeave.id)
-        : await supabase.from("leaves").insert(leaveData)
+        : await supabase.from("leaves").insert(leaveData);
 
       if (error) {
-        console.error("Error submitting leave:", error)
+        console.error("Error submitting leave:", error);
       } else {
-        console.log("Leave submitted successfully:", data)
-        fetchAppliedLeaves()
+        console.log("Leave submitted successfully:", data);
+        fetchAppliedLeaves();
         // Reset form and close dialog
-        setSelectedDate(undefined)
-        setLeaveType("")
-        setLeavePurpose("")
-        setLeaveTime("")
-        setEditingLeave(null)
+        setSelectedDate(undefined);
+        setLeaveType("");
+        setLeavePurpose("");
+        setLeaveTime("");
+        setEditingLeave(null);
+        setIsDialogOpen(false);
       }
     }
-  }
-
-  const handleEdit = (leave: any) => {
-    setEditingLeave(leave)
-    setSelectedDate(new Date(leave.leave_date))
-    setLeaveType(leave.leave_type)
-    setLeavePurpose(leave.leave_purpose)
-    setLeaveTime(leave.leave_time)
-  }
+  };
 
   const handleDelete = async (leaveId: string) => {
     const { error } = await supabase.from("leaves").delete().eq("id", leaveId)
@@ -103,32 +123,222 @@ export default function EmployeeView({ userId }: { userId: string }) {
     }
   }
 
-  const isLeaveApplied = (date: Date) => {
-    return appliedLeaves.find((leave) => new Date(leave.leave_date).toDateString() === date.toDateString())
+  const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 })
+  const weekDates = WEEKDAYS.map((_, index) => addDays(weekStart, index))
+
+  const getLeavesForDate = (date: Date) => {
+    return appliedLeaves.filter((leave) => isSameDay(parseISO(leave.leave_date), date))
   }
+
+  const columns: ColumnDef<any>[] = [
+    {
+      accessorKey: "leave_date",
+      header: ({ column }) => {
+        return (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Leave Date
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        )
+      },
+      cell: ({ row }) => format(parseISO(row.getValue("leave_date")), "MMMM do, yyyy"),
+    },
+    {
+      accessorKey: "leave_type",
+      header: ({ column }) => {
+        return (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Leave Type
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        )
+      },
+    },
+    {
+      accessorKey: "leave_purpose",
+      header: "Leave Purpose",
+    },
+    {
+      accessorKey: "leave_time",
+      header: ({ column }) => {
+        return (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Leave Time
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        )
+      },
+      cell: ({ row }) => (
+        <Badge variant="secondary" className="bg-rose-500 text-white">
+          {row.getValue("leave_time")}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <Badge
+          variant={
+            row.getValue("status") === "Approved"
+              ? "success"
+              : row.getValue("status") === "Rejected"
+                ? "destructive"
+                : "default"
+          }
+        >
+          {row.getValue("status")}
+        </Badge>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleDateClick(parseISO(row.getValue("leave_date")), row.original)}
+          >
+            Edit
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700">
+                Delete
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone. This will permanently delete your leave request.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => handleDelete(row.original.id)}
+                  className="bg-red-500 hover:bg-red-700"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      ),
+    },
+  ]
 
   return (
     <div className="space-y-6">
-      <Calendar
-        mode="single"
-        selected={selectedDate}
-        onSelect={handleDateSelect}
-        className="rounded-md border"
-        disabled={(date) => date.getDay() === 0 || date.getDay() === 6}
-        modifiers={{
-          applied: (date) => isLeaveApplied(date) !== undefined,
-        }}
-        modifiersStyles={{
-          applied: (date) => {
-            const leave = isLeaveApplied(date)
-            return leave ? { backgroundColor: getLeaveColor(leave.leave_type) } : {}
-          },
-        }}
-      />
-      <Dialog>
-        <DialogTrigger asChild>
-          <Button>{editingLeave ? "Edit Leave" : "Apply for Leave"}</Button>
-        </DialogTrigger>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <Button variant="outline" size="icon" onClick={() => setCurrentWeek(addDays(currentWeek, -7))}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <h2 className="text-lg font-semibold">
+            {format(weekStart, "dd MMM yyyy")} - {format(addDays(weekStart, 4), "dd MMM yyyy")}
+          </h2>
+          <Button variant="outline" size="icon" onClick={() => setCurrentWeek(addDays(currentWeek, 7))}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-5 gap-4">
+        {weekDates.map((date, index) => {
+          const leavesForDate = getLeavesForDate(date)
+          const hasFullDay = leavesForDate.some((leave) => leave.leave_time === "Full Day")
+          const halfDayLeaves = leavesForDate.filter((leave) => leave.leave_time === "Half Day")
+
+          return (
+            <div key={index} className="space-y-2">
+              <div className="text-center">
+                <div className="text-sm font-medium text-muted-foreground">{WEEKDAYS[index]}</div>
+                <div className="text-lg">{format(date, "dd")}</div>
+              </div>
+              <div
+                className="h-[180px] rounded-lg border border-dashed p-2 hover:border-solid cursor-pointer relative"
+                onClick={() => !hasFullDay && handleDateClick(date)}
+              >
+                {hasFullDay ? (
+                  <Card
+                    className={cn(
+                      "border h-full",
+                      LEAVE_COLORS[leavesForDate[0].leave_type as keyof typeof LEAVE_COLORS],
+                    )}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDateClick(date, leavesForDate[0])
+                    }}
+                  >
+                    <CardHeader className="p-3">
+                      <CardTitle className="text-sm font-medium">{leavesForDate[0].leave_type}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0">
+                      <p className="text-xs text-muted-foreground">{leavesForDate[0].leave_purpose}</p>
+                      <Badge variant="secondary" className="mt-2 bg-rose-500 text-white">
+                        {leavesForDate[0].leave_time}
+                      </Badge>
+                    </CardContent>
+                  </Card>
+                ) : halfDayLeaves.length > 0 ? (
+                  <>
+                    {halfDayLeaves.map((leave, i) => (
+                      <Card
+                        key={i}
+                        className={cn(
+                          "border mb-1",
+                          i === 0 ? "h-[calc(50%-2px)]" : "h-[calc(50%-2px)]",
+                          LEAVE_COLORS[leave.leave_type as keyof typeof LEAVE_COLORS],
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDateClick(date, leave)
+                        }}
+                      >
+                        <CardHeader className="p-2">
+                          <CardTitle className="text-xs font-medium">{leave.leave_type}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-2 pt-0">
+                          <Badge variant="secondary" className="mt-1 bg-rose-500 text-white text-xs">
+                            Half Day
+                          </Badge>
+                        </CardContent>
+                      </Card>
+                    ))}
+                    {halfDayLeaves.length === 1 && (
+                      <div className="flex items-center justify-center h-[calc(50%-2px)]">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="rounded-full bg-blue-100 hover:bg-blue-200 h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDateClick(date)
+                          }}
+                        >
+                          <Plus className="h-3 w-3 text-blue-500" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <Button variant="outline" size="icon" className="rounded-full bg-blue-100 hover:bg-blue-200">
+                      <Plus className="h-4 w-4 text-blue-500" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>{editingLeave ? "Edit Leave" : "Apply for Leave"}</DialogTitle>
@@ -181,69 +391,7 @@ export default function EmployeeView({ userId }: { userId: string }) {
         </DialogContent>
       </Dialog>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Leave Date</TableHead>
-            <TableHead>Leave Type</TableHead>
-            <TableHead>Leave Purpose</TableHead>
-            <TableHead>Leave Time</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {appliedLeaves.map((leave) => (
-            <TableRow key={leave.id}>
-              <TableCell>
-                {new Date(leave.leave_date).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
-              </TableCell>
-              <TableCell>{leave.leave_type}</TableCell>
-              <TableCell>{leave.leave_purpose}</TableCell>
-              <TableCell>
-                <Badge variant={leave.leave_time === "Full Day" ? "default" : "secondary"}>{leave.leave_time}</Badge>
-              </TableCell>
-              <TableCell>
-                <Badge
-                  variant={
-                    leave.status === "Approved" ? "success" : leave.status === "Rejected" ? "destructive" : "default"
-                  }
-                >
-                  {leave.status}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <Button variant="ghost" size="sm" onClick={() => handleEdit(leave)}>
-                  Edit
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="sm">
-                      Delete
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This action cannot be undone. This will permanently delete your leave request.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleDelete(leave.id)}>Continue</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <DataTable columns={columns} data={appliedLeaves} />
     </div>
   )
 }
