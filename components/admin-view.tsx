@@ -170,7 +170,7 @@ const columns: ColumnDef<any>[] = [
 export default function AdminView() {
   const [employees, setEmployees] = useState(0);
   const [todayLeaves, setTodayLeaves] = useState(0);
-  const [upcomingLeaves, setUpcomingLeaves] = useState(0);
+  const [tomorrowLeaves, setTomorrowLeaves] = useState(0);
   const [leaves, setLeaves] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
@@ -192,28 +192,24 @@ export default function AdminView() {
       .eq("is_admin", false); // Only count non-admin users
     setEmployees(employeesData?.length || 0);
 
-    // Fetch today's leaves
-    const today = new Date().toISOString().split("T")[0];
+    // Fetch today's leaves (in Sri Lanka timezone)
+    const today = new Date();
+    const todayFormatted = today.toLocaleDateString("en-CA", { timeZone: "Asia/Colombo" }); // Format as YYYY-MM-DD
     const { data: todayLeavesData } = await supabase
       .from("leaves")
       .select("id")
-      .eq("leave_date", today);
+      .eq("leave_date", todayFormatted);
     setTodayLeaves(todayLeavesData?.length || 0);
 
-    // Fetch upcoming leaves (next working day)
-    const todayDate = new Date();
-    let nextWorkingDay = new Date(todayDate);
-    if (todayDate.getDay() === 5) { // If today is Friday
-      nextWorkingDay.setDate(todayDate.getDate() + 3); // Next Monday
-    } else {
-      nextWorkingDay.setDate(todayDate.getDate() + 1); // Next day
-    }
-    const nextWorkingDayFormatted = nextWorkingDay.toISOString().split("T")[0];
-    const { data: upcomingLeavesData } = await supabase
+    // Fetch tomorrow's leaves (in Sri Lanka timezone)
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const tomorrowFormatted = tomorrow.toLocaleDateString("en-CA", { timeZone: "Asia/Colombo" }); // Format as YYYY-MM-DD
+    const { data: tomorrowLeavesData } = await supabase
       .from("leaves")
       .select("id")
-      .eq("leave_date", nextWorkingDayFormatted);
-    setUpcomingLeaves(upcomingLeavesData?.length || 0);
+      .eq("leave_date", tomorrowFormatted);
+    setTomorrowLeaves(tomorrowLeavesData?.length || 0);
 
     // Fetch leaves with filters
     let query = supabase
@@ -225,10 +221,14 @@ export default function AdminView() {
       query = query.ilike("users.full_name", `%${searchTerm}%`);
     }
 
-    if (dateRange.from && dateRange.to) {
+    if (dateRange && dateRange.from && dateRange.to) {
+      // Adjust the end date to include the entire day (up to 23:59:59)
+      const adjustedToDate = new Date(dateRange.to);
+      adjustedToDate.setHours(23, 59, 59, 999); // Set to the end of the day
+    
       query = query
-        .gte("leave_date", dateRange.from.toISOString().split("T")[0])
-        .lte("leave_date", dateRange.to.toISOString().split("T")[0]);
+        .gte("leave_date", dateRange.from.toISOString().split("T")[0]) // Start date
+        .lte("leave_date", adjustedToDate.toISOString().split("T")[0]); // End date (inclusive)
     }
 
     const { data, error } = await query;
@@ -282,7 +282,7 @@ export default function AdminView() {
 
   return (
     <div className="space-y-6">
-      {/* Cards for Total Employees, Today's Leaves, and Upcoming Leaves */}
+      {/* Cards for Total Employees, Today Leaves, and Tomorrow Leaves */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -294,7 +294,7 @@ export default function AdminView() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Today's Leaves</CardTitle>
+            <CardTitle className="text-sm font-medium">Today Leaves</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{todayLeaves}</div>
@@ -305,7 +305,7 @@ export default function AdminView() {
             <CardTitle className="text-sm font-medium">Upcoming Leaves</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{upcomingLeaves}</div>
+            <div className="text-2xl font-bold">{tomorrowLeaves}</div>
           </CardContent>
         </Card>
       </div>

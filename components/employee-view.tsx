@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { DataTable } from "@/components/data-table"
 import type { ColumnDef } from "@tanstack/react-table"
+import toast, { Toaster } from "react-hot-toast"
 
 const WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI"]
 
@@ -60,6 +61,7 @@ export default function EmployeeView({ userId }: { userId: string }) {
 
     if (error) {
       console.error("Error fetching applied leaves:", error)
+      toast.error("Failed to fetch leaves")
     } else {
       setAppliedLeaves(data || [])
     }
@@ -83,14 +85,48 @@ export default function EmployeeView({ userId }: { userId: string }) {
     }
   }
 
+  const validateLeaveApplication = (date: Date, editingLeaveId?: string) => {
+    const leavesForDate = getLeavesForDate(date).filter(
+      (leave) => leave.id !== editingLeaveId // Exclude the currently edited leave
+    )
+    const hasFullDay = leavesForDate.some((leave) => leave.leave_time === "Full Day")
+    const halfDayLeaves = leavesForDate.filter((leave) => leave.leave_time === "Half Day")
+
+    if (hasFullDay) {
+      toast.error("A full day leave already exists for this date")
+      return false
+    }
+    if (halfDayLeaves.length >= 2) {
+      toast.error("Only two half day leaves are allowed per day")
+      return false
+    }
+    if (leaveTime === "Full Day" && halfDayLeaves.length > 0) {
+      toast.error("Cannot apply full day leave when half day leaves exist")
+      return false
+    }
+    return true
+  }
+
   const handleSubmit = async () => {
     if (selectedDate && leaveType && leavePurpose && leaveTime) {
+      // Skip validation if editing an existing leave
+      if (!editingLeave && !validateLeaveApplication(selectedDate)) {
+        return
+      }
+
+      // Ensure the date is stored in UTC format
+      const leaveDateUTC = new Date(Date.UTC(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate()
+      ))
+
       const leaveData = {
         user_id: userId,
         leave_type: leaveType,
         leave_purpose: leavePurpose,
         leave_time: leaveTime,
-        leave_date: selectedDate.toISOString().split("T")[0], // Ensure UTC date
+        leave_date: leaveDateUTC.toISOString().split("T")[0], // Ensure UTC date
       };
 
       const { data, error } = editingLeave
@@ -99,9 +135,11 @@ export default function EmployeeView({ userId }: { userId: string }) {
 
       if (error) {
         console.error("Error submitting leave:", error);
+        toast.error("Failed to submit leave")
       } else {
         console.log("Leave submitted successfully:", data);
         fetchAppliedLeaves();
+        toast.success(editingLeave ? "Leave updated successfully" : "Leave applied successfully")
         // Reset form and close dialog
         setSelectedDate(undefined);
         setLeaveType("");
@@ -118,8 +156,10 @@ export default function EmployeeView({ userId }: { userId: string }) {
 
     if (error) {
       console.error("Error deleting leave:", error)
+      toast.error("Failed to delete leave")
     } else {
       fetchAppliedLeaves()
+      toast.success("Leave deleted successfully")
     }
   }
 
@@ -233,6 +273,7 @@ export default function EmployeeView({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-6">
+      <Toaster />
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <Button variant="outline" size="icon" onClick={() => setCurrentWeek(addDays(currentWeek, -7))}>
@@ -395,4 +436,3 @@ export default function EmployeeView({ userId }: { userId: string }) {
     </div>
   )
 }
-
