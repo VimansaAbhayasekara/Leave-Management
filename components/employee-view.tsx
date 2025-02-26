@@ -30,10 +30,10 @@ import toast, { Toaster } from "react-hot-toast"
 const WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI"]
 
 const LEAVE_COLORS = {
-  "Study Leave": "bg-gradient-to-r from-blue-500/20 to-blue-500/10 border-blue-500/20",
-  "Exam Leave": "bg-gradient-to-r from-green-500/20 to-green-500/10 border-green-500/20",
-  "Medical Leave": "bg-gradient-to-r from-red-500/20 to-red-500/10 border-red-500/20",
-  "Annual Leave": "bg-gradient-to-r from-yellow-500/20 to-yellow-500/10 border-yellow-500/20",
+  "Study Leave": "bg-gradient-to-r from-yellow-500/20 to-yellow-500/10 border-yellow-500/20",
+  "Exam Leave": "bg-gradient-to-r from-teal-400/30 to-cyan-600/20 border-teal-400/20",
+  "Medical Leave": "bg-gradient-to-r from-rose-700/20 to-rose-700/10 border-rose-700/20",
+  "Annual Leave": "bg-gradient-to-r from-cyan-400/30 to-blue-600/20 border-cyan-400/20",
   "Parental Leave": "bg-gradient-to-r from-purple-500/20 to-purple-500/10 border-purple-500/20",
 }
 
