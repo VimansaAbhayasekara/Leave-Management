@@ -38,6 +38,7 @@ import {
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { utils, writeFile } from "xlsx"; // Import xlsx library
 import toast, { Toaster } from "react-hot-toast"; // Import toast for notifications
+import { NextWeekResourcesBarChart } from "@/components/NextWeekResourcesBarChart";
 
 // Define the columns for the table
 const columns: ColumnDef<any>[] = [
@@ -183,6 +184,7 @@ export default function AdminView() {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = useState({});
+  const [nextWeekData, setNextWeekData] = useState<any[]>([]);
   const supabase = createClient();
 
   // Fetch data from Supabase
@@ -242,8 +244,102 @@ export default function AdminView() {
     }
   };
 
+  // Fetch next week's data for the bar chart
+  const fetchNextWeekData = async () => {
+    const today = new Date();
+    const nextWeekStart = new Date(today);
+    nextWeekStart.setDate(today.getDate() + (7 - today.getDay())); // Start of next week (Sunday)
+    const nextWeekEnd = new Date(nextWeekStart);
+    nextWeekEnd.setDate(nextWeekStart.getDate() + 6); // End of next week (Saturday)
+  
+    // Fetch all non-admin employees
+    const { data: employees } = await supabase
+      .from("users")
+      .select("full_name")
+      .eq("is_admin", false);
+  
+    // Fetch leaves for next week
+    const { data: leaves } = await supabase
+      .from("leaves")
+      .select("leave_date, leave_time, users!inner(full_name)")
+      .gte("leave_date", nextWeekStart.toISOString().split("T")[0])
+      .lte("leave_date", nextWeekEnd.toISOString().split("T")[0]);
+  
+    const nextWeekData = [];
+  
+    // Process each weekday (Monday to Friday)
+    for (let i = 0; i < 5; i++) {
+      const date = new Date(nextWeekStart);
+      date.setDate(nextWeekStart.getDate() + i + 1); // Skip Sunday and start from Monday
+      const dateString = date.toISOString().split("T")[0];
+  
+      // Get all leaves for this date
+      const dailyLeaves = leaves?.filter(l => l.leave_date === dateString) || [];
+  
+      // Group leaves by employee
+      // Group leaves by employee
+const employeeLeaveMap: { [key: string]: { halfDay: number; fullDay: number } } = {};
+dailyLeaves.forEach((leave) => {
+  // Explicitly type `leave.users` to avoid TypeScript errors
+  const users = leave.users as { full_name: string }[] | { full_name: string } | undefined;
+
+  // Safely access the `full_name` property
+  const employeeName = users
+    ? Array.isArray(users)
+      ? users[0]?.full_name
+      : users.full_name
+    : undefined;
+
+    if (!employeeName) {
+      console.warn("Employee name is undefined for leave:", leave);
+      return; // Skip this leave if the employee name is not found
+    }
+
+    if (!employeeLeaveMap[employeeName]) {
+      employeeLeaveMap[employeeName] = { halfDay: 0, fullDay: 0 };
+    }
+    if (leave.leave_time === "Half Day") {
+      employeeLeaveMap[employeeName].halfDay += 1;
+    } else if (leave.leave_time === "Full Day") {
+      employeeLeaveMap[employeeName].fullDay += 1;
+    }
+});
+  
+      // Categorize employees
+      const fullDayEmployees: string[] = [];
+      const halfDayEmployees: string[] = [];
+      Object.entries(employeeLeaveMap).forEach(([employeeName, leaveCount]) => {
+        if (leaveCount.fullDay > 0 || leaveCount.halfDay >= 2) {
+          fullDayEmployees.push(employeeName);
+        } else if (leaveCount.halfDay === 1) {
+          halfDayEmployees.push(employeeName);
+        }
+      });
+  
+      // Get distinct on-leave employees
+      const onLeaveEmployees = [...fullDayEmployees, ...halfDayEmployees];
+  
+      // Get available employees (those not in onLeaveEmployees)
+      const availableEmployees = employees
+        ?.filter(e => !onLeaveEmployees.includes(e.full_name))
+        .map(e => e.full_name) || [];
+  
+      nextWeekData.push({
+        name: format(date, "MMM d"), // Format as "Mar 5"
+        available: availableEmployees.length,
+        onLeave: onLeaveEmployees.length,
+        availableEmployees,
+        fullDayEmployees,
+        halfDayEmployees
+      });
+    }
+  
+    setNextWeekData(nextWeekData);
+  };
+
   useEffect(() => {
     fetchData();
+    fetchNextWeekData();
   }, [searchTerm, dateRange]);
 
   // Handle approve/reject actions
@@ -458,6 +554,17 @@ export default function AdminView() {
           </Button>
         </div>
       </div>
+
+      {/* Bar Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Upcoming Week Resource Availability & Leave Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <NextWeekResourcesBarChart data={nextWeekData} />
+        </CardContent>
+      </Card>
+
     </div>
   );
 }
